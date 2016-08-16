@@ -1,4 +1,4 @@
-#å‰ç½®éœ€æ±‚
+###Ç°ÖÃĞèÇó
 library(RPostgreSQL)
 library(data.table)
 library(dplyr)
@@ -6,9 +6,10 @@ library(rgeos)
 library(rgdal)
 library(fpc)
 
-#å‡½æ•°å®šä¹‰å¼€å§‹
+###º¯Êı¶¨Òå¿ªÊ¼
 
-#æœˆä»½è½¬åŒ–ä¸ºæˆªè‡³ä¸Šä¸ªæœˆåº•çš„ç»è¿‡æ—¶é—´
+##É¸Ñ¡Í£Áôµã
+#×Óº¯Êı£ºÔÂ·İ×ªÎªÌìÊı
 mtd<-function(mo){
     if(mo==2){
         return(31)
@@ -47,125 +48,83 @@ mtd<-function(mo){
         return(0)
     }
 }
-
-#ç­›é€‰åœç•™ç‚¹
+#×Óº¯Êı£ºÈÕÆÚ×ª»¯ÎªÃëÊı
+tts<-function(yy,mo,dd,hh,mm,ss){
+    mo=mtd(mo)
+    rlt=ifelse((yy-2014)==0,mo+dd,365+mo+dd)*24*3600+hh*3600+mm*60+ss
+    return(rlt)
+}
+#Ö÷º¯Êı
 fsp<-function(oridat){
     wdat=copy(oridat)
     wdat[,c("yy","mo","dd","hh","mm","ss"):=list(as.numeric(substr(V2,1,4)),as.numeric(substr(V2,6,7)),as.numeric(substr(V2,9,10)),as.numeric(substr(V2,12,13)),as.numeric(substr(V2,15,16)),as.numeric(substr(V2,18,19)))]
-    wdat[,c("time","type","dtime","dis","avgS"):=list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))]
-    for(i in 1:length(wdat$V2)){
-        mon=wdat[i]$mo
-        mon=mtd(mon)
-        wdat[i]$time=((ifelse((wdat[i]$yy-2014)==0,mon+wdat[i]$dd,365+mon+wdat[i]$dd)*24*3600+wdat[i]$hh*3600+wdat[i]$mm*60+wdat[i]$ss))
-    }
+    t=mapply(tts,wdat$yy,wdat$mo,wdat$dd,wdat$hh,wdat$mm,wdat$ss)
+    wdat[,time:=t]
     wdat[,c("V3","V4"):=list(as.numeric(V3),as.numeric(V4))]
     wdat <- data.frame(wdat, x=wdat$V3, y=wdat$V4)
     coordinates(wdat) <- c("x", "y")
     proj4string(wdat) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 + datum=WGS84")
     wdat <- spTransform(wdat, CRS("+init=epsg:2414 +datum=WGS84"))
     wdat <- data.table(coordinates(wdat), wdat@data)
-    row=unique(wdat$V1)
-    rlt=data.table(wdat[1])
-    rlt[,V1:=0]
-    for(i in row){
-        usck=wdat[V1==i,]
-        if(length(usck$V3)==1){
-            usck[,c("type","dtime","dis","avgS"):=list(1,0,0,0)]
-            rlt=rbind(rlt,usck)
-            next
-        }
-        if(length(usck$V3)==2){
-            usck[,c("type","dtime","dis","avgS"):=list(1,0,0,0)]
-            rlt=rbind(rlt,usck)
-            next
-        }
-        setkey(usck,time)
-        usck[,dtime:=(time-shift(time,1L))]
-        usck[,dis:=sqrt((x-shift(x,1L))*(x-shift(x,1L)) + ((y-shift(y,1L))*(y-shift(y,1L))))]
-        usck[,avgS:=(dis/dtime)]
-        usck[is.na(dtime) & is.na(dis),c("dtime","dis","avgS"):=list(0,0,0)]
-        usck[,type:=ifelse(avgS>0.6,2,1)]
-        usck[1,type:=usck[2,type]]
-        start=1
-        end=1
-        t=usck[1,type]
-        while(!(end==(length(usck$V1)+1))){
-            if(end==length(usck$V1)){
-                end=end+1
-            }
-            else if((usck[end,type]==t)){
-                end=end+1
-                next
-            }
-            if(t==1){
-                st=sum(usck[start:(end-1),dtime])
-                if(st<=30){
-                    usck[start:(end-1),type:=2]
-                }
-            }
-            else if(t==2){
-                sd=sum(usck[start:(end-1),dis])
-                if(sd<=200){
-                    usck[start:(end-1),type:=1]
-                }
-            }
-            start=end
-            t=usck[end,type]
-        }
-        rlt=rbind(rlt,usck)
-    }
-    rlt=rlt[!(V1==0),]
+    wdat[,c:=length(time),by=V1]
+    nouse=wdat[c==1 | c==2,]
+    nouse[,c("c","type"):=list(NULL,as.numeric(1))]
+    rlt=cbind(nouse)
+    wdat=wdat[!(c==1 | c==2),]
+    setkey(wdat,V1,time)
+    wdat[,dtime:=(time-shift(time,1L)),by=V1]
+    wdat[,dis:=sqrt((x-shift(x,1L))*(x-shift(x,1L)) + ((y-shift(y,1L))*(y-shift(y,1L))))]
+    wdat[,avgS:=(dis/dtime)]
+    wdat[is.na(dtime),c("dtime","dis","avgS"):=list(0,0,0)]
+    wdat[,type:=ifelse(avgS>0.6,2,1)]
+    wdat[,j:=ifelse((type-shift(type,1L))==0,0,1),by=V1]
+    wdat[is.na(j),j:=1]
+    wdat[,tt:=cumsum(j),by=V1]
+    wdat[,c("adtime","adis"):=list(sum(dtime),sum(dis)),by=.(V1,tt)]
+    wdat[type==1 & adtime<=30 & !(adtime==0),type:=2]
+    wdat[type==2 & adis<=200 & !(adis==0),type:=1]
+    wdat[,c("c","j","tt","adtime","adis","dtime","dis","avgS"):=list(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)]
+    rlt=rbind(rlt,wdat)
     return(rlt)
 }
 
-#æ ¹æ®æ•°æ®è®¡ç®—æœ€ä½³dbscanèšç±»å‚æ•°
+##¸ù¾İÊı¾İ¼ÆËã×î¼Ñdbscan¾ÛÀà²ÎÊı
+#×Óº¯Êı£º¾àÀë¼ÆËãº¯Êı
+dista<-function(x1,y1,x2,y2){
+    dx=abs(x1-x2)
+    dy=abs(y1-y2)
+    dis=sqrt(dx*dx+dy*dy)
+    return(dis)
+}
+#×Óº¯Êı
+dbft<-function(exp,dat){
+    ds=dbscan(dat,exp,30)
+    a=(length(unique(ds$cluster))-1)
+    t=length(which(ds$isseed==FALSE))
+    return(c(a,t))
+}
+#×Óº¯Êı
+dbfp<-function(dists,eps,dat,pts){
+    dd=copy(dat)
+    tmp=which(dists<=eps)
+    k=pts[tmp,]
+    setkey(dd,longitude,latitude)
+    setkey(k,longitude,latitude)
+    dd=dd[k,]
+    return(count(dd)$n)
+}
+#Ö÷º¯Êı
 lfke<-function(wdatbak){
     x=unique(wdatbak[,list(longitude,latitude)])
-    disa=data.table()
-    for(i in 1:length(x$longitude)){
-        lng1=x[i]$longitude
-        lat1=x[i]$latitude
-        x[,dis:=dista(lng1,lat1,longitude,latitude)]
-        disa=rbind(disa,data.table(t(x$dis)))
-    }
-    for(i in 1:length(x$longitude)){
-        setnames(disa,paste("V",i,sep=""),paste(i))
-    }
-    disb=data.table()
-    for(i in 1:length(x$longitude)){
-        s=data.table(t(disa[i,]))$V1
-        s=sort(s)
-        disb=rbind(disb,data.table(t(s)),fill=TRUE)
-    }
-    epstab=data.table()
-    for(i in 1:length(x$longitude)){
-        t=disb[[i]]
-        t=sum(t)/length(t)
-        epstab=rbind(epstab,data.table(t))
-    }
-    setnames(epstab,"t","eps")
-    epstab[,c("areas","trash"):=list(as.numeric(NA),as.numeric(NA))]
-    for(i in 1:40){
-        k=30
-        exp=epstab[i,eps]
-        da=wdatbak[,list(longitude,latitude)]
-        ds=dbscan(da,exp,k)
-        a=(length(unique(ds$cluster))-1)
-        t=length(which(ds$isseed==FALSE))
-        epstab[i,c("areas","trash"):=list(a,t)]
-    }
-    epstab=epstab[!is.na(areas),]
-    for(i in 2:29){
-        t1=epstab[i-1,]$areas
-        t2=epstab[i+1,]$areas
-        t=(t2-t1)/2
-        epstab[i,da:=t]
-        t1=epstab[i-1,]$trash
-        t2=epstab[i+1,]$trash
-        t=(t2-t1)/2
-        epstab[i,dt:=t]
-    }
-    p=epstab[!is.na(dt),]
+    disa=data.table(as.matrix(dist(x)))
+    disb=data.table(apply(disa,1,sort))
+    epstab=data.table(apply(disb,1,mean))
+    setnames(epstab,"V1","eps")
+    epstab=epstab[1:40]
+    k=apply(epstab,1,dbft,wdatbak[,list(longitude,latitude)])
+    epstab[,c("areas","trash"):=list(k[1,],k[2,])]
+    epstab[,c("da","dt"):=list((lead(areas,1L)-lag(areas,1L))/2,(lead(trash,1L)-lag(trash,1L))/2)]
+    p=epstab[!is.na(da),]
     tp=copy(p)
     if(length(unique(p$areas))>2 & length(unique(p$trash))>2){
         tp=tp[!(areas==max(p$areas)),]
@@ -189,51 +148,57 @@ lfke<-function(wdatbak){
     tp=rbind(tp1,tp2)
     r=which.min(tp$eps)
     eps=tp[r,]$eps
-    x[,c("dis","co"):=list(NULL,as.numeric(NA))]
-    for(i in 1:length(x$longitude)){
-        dd=copy(wdatbak)
-        tmp=disa[[i]]
-        tmp=which(tmp<=exp)
-        k=x[tmp,]
-        setkey(dd,longitude,latitude)
-        setkey(k,longitude,latitude)
-        dd=dd[k,]
-        x[i,co:=(count(dd)$n)]
-    }
-    minpts=sum(x$co)/length(wdatbak$longitude)
+    f=apply(disa,1,dbfp,eps,wdatbak,x)
+    minpts=sum(f)/length(wdatbak$longitude)
     return(list(eps,minpts))
 }
 
-#dbscanèšç±»
+##dbscan¾ÛÀà
 wdbs<-function(rs,eps,minpts){
     x=rs[,list(longitude,latitude)]
     ds=dbscan(x,eps,minpts)
-    xs=ds$cluster
-    qynum=max(xs)
-    agr=data.table(rs[1])
-    agr[,userid:=NA]
-    agr[,V10:=0]
-    for(i in 1:qynum){
-        sc=which(xs==i)
-        fc=rs
-        fc[,V10:=i]
-        sss=fc[sc,]
-        agr=rbind(agr,sss)
-    }
-    agr=na.omit(agr)
-    return(agr)
+    V10=ds$cluster
+    fc=cbind(rs,V10)
+    fc=fc[!(V10==0),]
+    fc=na.omit(fc)
+    return(fc)
 }
 
-#HITSç®—æ³•ï¼Œæ ¹æ®ç­¾åˆ°ç‚¹è®¡ç®—hubå’Œauthority
+##HITSËã·¨£¬¸ù¾İÇ©µ½µã¼ÆËãhubºÍauthority
+#×Óº¯Êı
+coea<-function(hub,tabn,col){
+     auth=t(tabn[row == hub[[1]],])[2:(length(col)+1)]
+     auth=as.numeric(auth)
+     auth=auth*as.numeric(hub[[2]])
+     return(auth)
+}
+#×Óº¯Êı
+coeh<-function(authority,tabn){
+    m=as.numeric(authority[[1]])
+    hu=as.numeric(tabn[[m+1]])
+    hu=hu*as.numeric(authority[[2]])
+    return(hu)
+}
+#×Óº¯Êı
+cotn<-function(i,row,dat){
+    tmp=dat[V10==i,]
+    setkey(tmp,userid)
+    tmp=tmp[row,]
+    tmp[is.na(count),count:=0]
+    return(tmp$count)
+}
+#Ö÷º¯Êı
 hits<-function(wdatbak){
-    setkey(wdatbak,V10,userid)
-    col=unique(wdatbak$V10)
-    row=unique(wdatbak$userid)
-    tabn=data.table(row)
-    for(i in row){
-        for(j in col){
-            tabn[row == i,paste(j):=count(wdatbak[userid == i & V10 == j,])]
-        }
+    dat=copy(wdatbak)
+    setkey(dat,V10,userid)
+    dat[,con:=length(longitude),by=.(V10,userid)]
+    dat=data.table(userid=dat$userid,V10=dat$V10,count=dat$con)
+    dat=unique(dat,fromFirst=TRUE)
+    col=unique(dat$V10)
+    row=unique(dat$userid)
+    tabn=cbind(data.table(row),data.table(apply(data.table(col),1,cotn,row,dat)))
+    for(i in col){
+        setnames(tabn,paste("V",i,sep=""),paste(i))
     }
     hub=data.table(row)
     authority=data.table(col)
@@ -241,32 +206,22 @@ hits<-function(wdatbak){
     authority[,authority:=1]
     a_old=authority$col
     h_old=hub$row
-    down_a_old=0
-    down_h_old=0
     jugg=0
-    i=1
     while(TRUE){
-        authority[,authority:=0]
-        for(m in row){
-            auth=tabn[row == m,]
-            auth[,row:=as.numeric(row)]
-            auth=t(auth*hub[row == m,hub])[2:(length(col)+1)]
-            authority[,authority:=(authority+auth)]
-        }
+        f=apply(hub,1,coea,tabn,col)
+        f=apply(f,1,sum)
+        authority[,authority:=f]
         down_a=authority[,authority]
         down_a=down_a*down_a
         down_a=sqrt(sum(down_a))
         authority[,authority:=(authority/down_a)]
-        hub[,hub:=0]
-        for(m in col){
-            hu=tabn[[m+1]]*authority[col==m,authority]
-            hub[,hub:=(hub+hu)]
-        }
+        f=apply(authority,1,coeh,tabn)
+        f=apply(f,1,sum)
+        hub[,hub:=f]
         down_h=hub[,hub]
         down_h=down_h*down_h
         down_h=sqrt(sum(down_h))
         hub[,hub:=(hub/down_h)]
-        i=i+1
         tmp=copy(authority)
         setkey(tmp,authority)
         a=tmp$col
@@ -284,72 +239,151 @@ hits<-function(wdatbak){
         }
         a_old=a
         h_old=h
-        down_a_old=down_a
-        down_h_old=down_h
     }
     return(list(authority,hub))
 }
 
-#æ±‚å¾—åˆå§‹åŒºåŸŸé—´ç½‘ç»œ
+##ÇóµÃ³õÊ¼ÇøÓò¼äÍøÂç
+#×Óº¯Êı
+coet<-function(i,col,dat){
+    co=as.character(col)
+    tmp=dat[end==i,]
+    tmp[,start:=as.character(start)]
+    setkey(tmp,start)
+    tmp=tmp[co,]
+    tmp[is.na(con),con:=0]
+    return(tmp$con)
+}
+#Ö÷º¯Êı
 cot<-function(wdatbak){
-    col=unique(wdatbak$V10)
-    row=unique(wdatbak$userid)
-    ori_net=data.table(col)
+    dat=copy(wdatbak)
+    setkey(dat,V10,userid)
+    col=unique(dat$V10)
+    row=unique(dat$userid)
+    dat=data.table(dat$userid,dat$checkin_time,dat$V10)
+    setkey(dat,V1,V2)
+    dat[,con:=length(V2),by=V1]
+    dat=dat[!(con==1),]
+    dat[,c("start","end"):=list(shift(V3,1L),V3),by=V1]
+    dat=dat[!is.na(start) & !(start==end),]
+    dat[,con:=length(V2),by=.(start,end)]
+    dat=data.table(start=dat$start,end=dat$end,con=dat$con)
+    dat=unique(dat)
+    ori_net=cbind(data.table(col),data.table(apply(data.table(col),1,coet,col,dat)))
     for(i in col){
-        ori_net[,paste(i):=0]
-    }
-    for(j in row){
-        user_ct=data.table(cbind(wdatbak[wdatbak$userid==j,]$checkin_time,wdatbak[wdatbak$userid==j,]$V10))
-        setkey(user_ct,V1)
-        area=as.numeric(user_ct$V2)
-        k=length(area)
-        if(k==1) next
-        a1=area[1]
-        for(a2 in area[2:k]){
-            if(!(a2==a1)){
-                ori_net[col==a1,][[a2+1]]=ori_net[col==a1,][[a2+1]]+1
-            }
-            a1=a2
-        }
+        setnames(ori_net,paste("V",i,sep=""),paste(i))
     }
     return(ori_net)
 }
 
-#æ±‚å¾—æœ€ç»ˆåŒºåŸŸé—´ç½‘ç»œ
+##ÇóµÃ×îÖÕÇøÓò¼äÍøÂç
+#×Óº¯Êı
+cone<-function(i,n,orinet,authority,hub){
+    if(orinet[col==n,][[i+1]]==0) return(0)
+    outn=sum(orinet[col==n,])-n
+    inn=sum(orinet[[i+1]])
+    a=orinet[col==n,][[i+1]]*((orinet[col==n,][[i+1]]/outn)*authority[col==n,authority]+(orinet[col==n,][[i+1]]/inn)*authority[col==i,authority])
+    return(a)
+}
+#×Óº¯Êı
+conea<-function(i,col,orinet,authority,hub){
+    a=apply(data.table(col),1,cone,i,orinet,authority,hub)
+    return(a)
+}
+#×Óº¯Êı
+conhk<-function(i,col,dat){
+    co=as.character(col)
+    tmp=dat[end==i,]
+    tmp[,start:=as.character(start)]
+    setkey(tmp,start)
+    tmp=tmp[co,]
+    tmp[is.na(hk),hk:=0]
+    return(tmp$hk)
+}
+#Ö÷º¯Êı
 con<-function(wdatbak,orinet,authority,hub){
     col=authority$col
     row=hub$row
-    rlt_net=data.table(col)
+    rlt_net=cbind(data.table(col),data.table(t(apply(data.table(col),1,conea,col,orinet,authority,hub))))
     for(i in col){
-        rlt_net[,paste(i):=0]
+        setnames(rlt_net,paste("V",i,sep=""),paste(i))
     }
+    dat=copy(wdatbak)
+    setkey(dat,V10,userid)
+    col=unique(dat$V10)
+    row=unique(dat$userid)
+    dat=data.table(dat$userid,dat$checkin_time,dat$V10)
+    setkey(dat,V1,V2)
+    dat[,con:=length(V2),by=V1]
+    dat=dat[!(con==1),]
+    dat[,c("start","end"):=list(shift(V3,1L),V3),by=V1]
+    dat=dat[!is.na(start) & !(start==end),]
+    dat=data.table(userid=dat$V1,start=dat$start,end=dat$end)
+    hu=copy(hub)
+    setkey(dat,userid)
+    setkey(hu,row)
+    dat=hu[dat,]
+    dat[,hk:=sum(hub),by=.(start,end)]
+    dat[,c("row","hub"):=list(NULL,NULL)]
+    dat=unique(dat)
+    rlt_net2=cbind(data.table(col),data.table(apply(data.table(col),1,conhk,col,dat)))
     for(i in col){
-        for(j in col){
-            if(orinet[col==i,][[j+1]]==0) next
-            outn=sum(orinet[col==i,])-i
-            inn=sum(orinet[[j+1]])
-            a=orinet[col==i,][[j+1]]*((orinet[col==i,][[j+1]]/outn)*authority[col==i,authority]+(orinet[col==i,][[j+1]]/inn)*authority[col==j,authority])
-            rlt_net[col==i,][[j+1]]=a
-        }
+        setnames(rlt_net2,paste("V",i,sep=""),paste(i))
     }
-    for(j in row){
-        user_ct=data.table(cbind(wdatbak[wdatbak$userid==j,]$checkin_time,wdatbak[wdatbak$userid==j,]$V10))
-        setkey(user_ct,V1)
-        area=as.numeric(user_ct$V2)
-        k=length(area)
-        if(k==1) next
-        a1=area[1]
-        for(a2 in area[2:k]){
-            if(!(a2==a1)){
-                rlt_net[col==a1,][[a2+1]]=rlt_net[col==a1,][[a2+1]]+hub[row==j,hub]
-            }
-            a1=a2
-        }
-    }
+    rlt_net=rlt_net+rlt_net2
+    rlt_net[,col:=(col/2)]
     return(rlt_net)
 }
 
-#æ ¹æ®rltnetæ±‚å¾—å…¨ç¨‹è·¯çº¿
+##¸ù¾İrltnet£¬ÇóµÃ´Óstart³ö·¢¾­¹ıcount¸öµãµÄÂ·Ïß
+#Ö÷º¯Êı
+cor<-function(rltnet,start,count){
+    col=rltnet$col
+    weight=0
+    rlt=data.table(start)
+    if(count>=1){
+        for(i in 1:count){
+            if(start==0) break
+            negr=data.table(cbind(rltnet$col,t(rltnet[rltnet$col==start,])[2:(length(col)+1)]))
+            setkey(negr,V2)
+            negr=negr[!(negr$V2==0),]
+            nextn=length(negr$V1)
+            judge=TRUE
+            while(judge){
+                if(nextn==0) {
+                    judge=TRUE
+                    break
+                }
+                af=negr[nextn,V1]
+                judge=FALSE
+                start=af
+                if(any(rlt==af)){
+                    nextn=nextn-1
+                    judge=TRUE
+                }
+            }
+            if(!judge){
+                weight=weight+t(rltnet[rltnet$col==rlt[i,start],])[start+1]
+                rlt=rbind(rlt,data.table(start))
+            }
+            else{
+                start=0
+            }
+        }
+        k=length(rlt$start)
+        if(k<(count+1)){
+            for(i in (k+1):(count+1)){
+                start=as.numeric(NA)
+                rlt=rbind(rlt,data.table(start))
+            }
+        }
+    }
+    start=weight
+    rlt=rbind(rlt,data.table(start))
+    return(rlt)
+}
+
+##¸ù¾İrltnetÇóµÃÈ«³ÌÂ·Ïß
 coar<-function(rltnet){
     rlt=data.table(col)
     rlt[,no:=col]
@@ -432,101 +466,69 @@ coar<-function(rltnet){
     return(rlt)
 }
 
-#æ ¹æ®rltnetï¼Œæ±‚å¾—ä»startå‡ºå‘ç»è¿‡countä¸ªç‚¹çš„è·¯çº¿
-cor<-function(rltnet,start,count){
-    col=rltnet$col
-    weight=0
-    rlt=data.table(start)
-    if(count>=1){
-        for(i in 1:count){
-            if(start==0) break
-            negr=data.table(cbind(rltnet$col,t(rltnet[rltnet$col==start,])[2:(length(col)+1)]))
-            setkey(negr,V2)
-            negr=negr[!(negr$V2==0),]
-            nextn=length(negr$V1)
-            judge=TRUE
-            while(judge){
-                if(nextn==0) {
-                    judge=TRUE
-                    break
-                }
-                af=negr[nextn,V1]
-                judge=FALSE
-                start=af
-                if(any(rlt==af)){
-                    nextn=nextn-1
-                    judge=TRUE
-                }
-            }
-            if(!judge){
-                weight=weight+t(rltnet[rltnet$col==rlt[i,start],])[start+1]
-                rlt=rbind(rlt,data.table(start))
-            }
-            else{
-                start=0
-            }
-        }
-        k=length(rlt$start)
-        if(k<(count+1)){
-            for(i in (k+1):(count+1)){
-                start=as.numeric(NA)
-                rlt=rbind(rlt,data.table(start))
-            }
-        }
-    }
-    start=weight
-    rlt=rbind(rlt,data.table(start))
-    return(rlt)
-}
-
-#ä¸»è¦å¤„ç†å‡½æ•°
+##Ö÷Òª´¦Àíº¯Êı
 weibogo<-function(){
     drv=dbDriver("PostgreSQL")
     conn=dbConnect(drv,dbname="CityData",user="team",password="maet",host="120.25.253.38")
     place=dbGetQuery(conn,"select * from weibo_data")
     place=place$data
-    t=c("","_1","_2","_3","_4")
+    season=c("_0","_1","_2","_3","_4")
+    k=1
     for(i in place){
-        for(j in t){
-            if(i=="weibo" & j=="") next
-            #è¯»å–æ•°æ®
-            drv=dbDriver("PostgreSQL")
-            conn=dbConnect(drv,dbname="CityData",user="team",password="maet",host="120.25.253.38")
+        for(j in season){
+            if(i=="weibo" & j=="_0") next
+            cat("[",k,"/179] Table ",i,j," begin! ",Sys.time(),"\n",sep="")
+            #¶ÁÈ¡Êı¾İ
+            #drv=dbDriver("PostgreSQL")
+            #conn=dbConnect(drv,dbname="CityData",user="team",password="maet",host="120.25.253.38")
             wdatbak=data.table(dbGetQuery(conn,paste("select * from ",i,j,sep="")))
             wdatbak=wdatbak[!is.na(longitude) & !is.na(latitude),]
-            #windowsä¸‹çš„æ±‰å­—ç¼–ç è½¬æ¢
-            #wdatbak$name=iconv(wdatbak$name,"UTF8","CP936")
-            #wdatbak$user_reg_place<-iconv(wdatbak$user_reg_place,"UTF8","CP936")
-            #wdatbak$address<-iconv(wdatbak$address,"UTF8","CP936")
-            #wdatbak$category<-iconv(wdatbak$category,"UTF8","CP936")
+            #windowsÏÂµÄºº×Ö±àÂë×ª»»
+            wdatbak$name=iconv(wdatbak$name,"UTF8","CP936")
+            wdatbak$user_reg_place<-iconv(wdatbak$user_reg_place,"UTF8","CP936")
+            wdatbak$address<-iconv(wdatbak$address,"UTF8","CP936")
+            wdatbak$category<-iconv(wdatbak$category,"UTF8","CP936")
+            wdatbak$shuxing<-iconv(wdatbak$shuxing,"UTF8","CP936")
+            cat("\t","Readin Finished!","\n")
             oridat=data.table(cbind(wdatbak$userid,wdatbak$checkin_time,wdatbak$longitude,wdatbak$latitude))
-            #ç­›é€‰åœç•™ç‚¹
+            #É¸Ñ¡Í£Áôµã
             stp=fsp(oridat)
             setnames(stp,c("V1","V2","V3","V4"),c("userid","checkin_time","longitude","latitude"))
             setkey(wdatbak,userid,checkin_time,longitude,latitude)
             setkey(stp,userid,checkin_time,longitude,latitude)
             wdatbak=wdatbak[stp,]
+            output=data.table(poiindex=wdatbak$poiindex,userid=wdatbak$userid,user_reg_place=wdatbak$user_reg_place,checkin_time=wdatbak$checkin_time,name=wdatbak$name,address=wdatbak$address,category=wdatbak$category,shuxing=wdatbak$shuxing,categoryid=wdatbak$categoryid,longitude=wdatbak$longitude,latitude=wdatbak$latitude,type=wdatbak$type)
+            dbWriteTable(conn,paste(i,j,"_filter",sep=""),output,overwrite = TRUE)
             wdatbak=wdatbak[type==1,]
-            #dbscanèšç±»
+            cat("\t","Filter Finished!","\n")
+            #dbscan¾ÛÀà
             eam=lfke(wdatbak)
             eps=eam[[1]]
             minpts=eam[[2]]
             wdatbak=wdbs(wdatbak,eps,minpts)
-            dbWriteTable(conn,paste(i,j,"_dbscan",sep=""),wdatbak,overwrite = TRUE)
-            #HITSè®¡ç®—
+            output=data.table(poiindex=wdatbak$poiindex,userid=wdatbak$userid,user_reg_place=wdatbak$user_reg_place,checkin_time=wdatbak$checkin_time,name=wdatbak$name,address=wdatbak$address,category=wdatbak$category,shuxing=wdatbak$shuxing,categoryid=wdatbak$categoryid,longitude=wdatbak$longitude,latitude=wdatbak$latitude,regionid=wdatbak$V10)
+            dbWriteTable(conn,paste(i,j,"_dbscan",sep=""),output,overwrite = TRUE)
+            cat("\t","Dbscan Finished","\n")
+            #HITS¼ÆËã
             rlthits=hits(wdatbak)
             authority=rlthits[[1]]
             hub=rlthits[[2]]
-            dbWriteTable(conn,paste(i,j,"_authority",sep=""),authority,overwrite = TRUE)
-            dbWriteTable(conn,paste(i,j,"_hub",sep=""),hub,overwrite = TRUE)
-            #è·¯çº¿ç”Ÿæˆ
+            output=data.table(regionid=authority$col,authority=authority$authority)
+            dbWriteTable(conn,paste(i,j,"_authority",sep=""),output,overwrite = TRUE)
+            output=data.table(userid=hub$row,hub=hub$hub)
+            dbWriteTable(conn,paste(i,j,"_hub",sep=""),output,overwrite = TRUE)
+            cat("\t","Hits Finished!","\n")
+            #Â·ÏßÉú³É
             orinet=cot(wdatbak)
             rltnet=con(wdatbak,orinet,authority,hub)
-            dbWriteTable(conn,paste(i,j,"_net",sep=""),rltnet,overwrite = TRUE)
-            #ç”Ÿæˆé»˜è®¤è·¯çº¿
+            output=copy(rltnet)
+            setnames(output,"col","regionid")
+            dbWriteTable(conn,paste(i,j,"_net",sep=""),output,overwrite = TRUE)
+            cat("\t","Net Generation Finished!","\n")
+            #Éú³ÉÄ¬ÈÏÂ·Ïß
             roads=data.table(t(1:(length(authority$col)+1)))
-            for(i in authority$col){
-                road=cor(rltnet,i,(length(authority$col)-1))
+            for(m in authority$col){
+                road=cor(rltnet,m,(length(authority$col)-1))
                 roads=rbind(roads,data.table(t(road)))
             }
             roads=roads[2:(length(authority$col)+1)]
@@ -541,16 +543,18 @@ weibogo<-function(){
                 roads=roads[1:(length(authority$col)+1)]
             }
             dbWriteTable(conn,paste(i,j,"_roads",sep=""),roads,overwrite = TRUE)
-            #ç»“æŸ
-            cat("Table ",i,j," finised! ","\n",sep="")
-            #æ¸…ç†
+            cat("\t","Roads Generation Finished!","\n")
+            #½áÊø
+            cat("[",k,"/179] Table ",i,j," finised! ",Sys.time(),"\n",sep="")
+            k=k+1
+            #ÇåÀí
             rm(wdatbak,oridat,stp,eam,eps,minpts,rlthits,authority,hub,orinet,rltnet,road,roads)
             gc()
         }
     }
 }
 
-#å‡½æ•°å®šä¹‰ç»“æŸ
+###º¯Êı¶¨Òå½áÊø
 
-# RUNï¼
+### RUN£¡
 weibogo()
