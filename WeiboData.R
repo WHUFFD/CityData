@@ -384,7 +384,9 @@ cor<-function(rltnet,start,count){
 }
 
 ##根据rltnet求得全程路线
+#主函数
 coar<-function(rltnet){
+    col=rltnet$col
     rlt=data.table(col)
     rlt[,no:=col]
     rlt[,col:=NULL]
@@ -431,9 +433,11 @@ coar<-function(rltnet){
                 }
             }
             if(!judge){
-                for(k in (t):(length(col)-1)){
-                    tabo[tabo$from==rltn[k,start] & tabo$to==rltn[k+1,start],c("from","to"):=list(NA,NA)]
-                    rltn[k]=NA
+                if(t<length(col)){
+                    for(k in (t):(length(col)-1)){
+                        tabo[tabo$from==rltn[k,start] & tabo$to==rltn[k+1,start],c("from","to"):=list(NA,NA)]
+                        rltn[k]=NA
+                    }
                 }
                 rltn[length(col)]=NA
                 rltn[t]=start
@@ -456,7 +460,7 @@ coar<-function(rltnet){
         }
         if(cando){
             start=auth
-            rltn=rbind(rlt,data.table(start))
+            rltn=rbind(rltn,data.table(start))
             rlt=cbind(rlt,rltn)
             rlt[,paste("from_",i,sep=""):=start]
             rlt[,start:=NULL]
@@ -464,6 +468,68 @@ coar<-function(rltnet){
     }
     rlt[,no:=NULL]
     return(rlt)
+}
+
+##根据rltnet，用户自定义多个区域x生成路线
+#主函数
+crfo<-function(rltnet,x){
+    col=c(1:length(x))
+    rltn=data.table(col)
+    col=rltnet$col
+    if(length(x)>=2){
+        for(i in x){
+            start=i
+            rlt=data.table(start)
+            for(j in 1:length(x)){
+                if(start==0) break
+                negr=data.table(cbind(rltnet$col,t(rltnet[rltnet$col==start,])[2:(length(col)+1)]))
+                setkey(negr,V2)
+                negr=negr[!(negr$V2==0),]
+                nextn=length(negr$V1)
+                judge=TRUE
+                while(judge){
+                    if(nextn==0){
+                        judge==0
+                        break
+                    }
+                    af=negr[nextn,V1]
+                    start=af
+                    judge=FALSE
+                    if(!any(x==af)){
+                        nextn=nextn-1
+                        judge=TRUE
+                        next
+                    }
+                    if(any(rlt==af)){
+                        nextn=nextn-1
+                        judge=TRUE
+                        next
+                    }
+                }
+                if(!judge){
+                    rlt=rbind(rlt,data.table(start))
+                }
+                else{
+                    start=0
+                }
+            }
+            k=length(rlt$start)
+            if(k<length(x)){
+                for(m in (k+1):length(x)){
+                    start=as.numeric(NA)
+                    rlt=rbind(rlt,data.table(start))
+                }
+            }
+            rltn=cbind(rltn,rlt)
+            setnames(rltn,"start",paste("from_",i,sep=""))
+        }
+        rltn[,col:=NULL]
+    }
+    else{
+        rltn=data.table(x)
+        setnames(rltn,"x",paste("from_",x,sep=""))
+    }
+    return(rltn)
 }
 
 ##主要处理函数
@@ -479,8 +545,6 @@ weibogo<-function(){
             if(i=="weibo" & j=="_0") next
             cat("[",k,"/179] Table ",i,j," begin! ",Sys.time(),"\n",sep="")
             #读取数据
-            #drv=dbDriver("PostgreSQL")
-            #conn=dbConnect(drv,dbname="CityData",user="team",password="maet",host="120.25.253.38")
             wdatbak=data.table(dbGetQuery(conn,paste("select * from ",i,j,sep="")))
             wdatbak=wdatbak[!is.na(longitude) & !is.na(latitude),]
             #windows下的汉字编码转换
