@@ -52,6 +52,12 @@ ttd<-function(yy,mo,dd){
     return(rlt)
 }
 #子函数
+tts<-function(yy,mo,dd,hh,mm,ss){
+    mo=mtd(mo)
+    rlt=ifelse((yy-2014)==0,mo+dd,365+mo+dd)*24*3600+hh*3600+mm*60+ss
+    return(rlt)
+}
+#子函数
 dtw<-function(rlt){
     rlt=rlt%%7
     if(rlt>4){
